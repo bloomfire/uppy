@@ -12,6 +12,7 @@ const cuid = require('cuid')
 const ResizeObserver = require('resize-observer-polyfill').default || require('resize-observer-polyfill')
 const createSuperFocus = require('./utils/createSuperFocus')
 const memoize = require('memoize-one').default || require('memoize-one')
+const { h } = require('preact')
 
 const TAB_KEY = 9
 const ESC_KEY = 27
