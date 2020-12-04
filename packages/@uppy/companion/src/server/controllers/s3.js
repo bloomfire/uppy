@@ -4,6 +4,7 @@ module.exports = function s3 (config) {
   if (typeof config.acl !== 'string') {
     throw new TypeError('s3: The `acl` option must be a string')
   }
+
   if (typeof config.getKey !== 'function') {
     throw new TypeError('s3: The `getKey` option must be a function')
   }
@@ -44,7 +45,7 @@ module.exports = function s3 (config) {
     })
 
     client.createPresignedPost({
-      Bucket: config.bucket,
+      Bucket: req.bucket,
       Expires: config.expires,
       Fields: fields,
       Conditions: config.conditions
@@ -88,7 +89,7 @@ module.exports = function s3 (config) {
     }
 
     client.createMultipartUpload({
-      Bucket: config.bucket,
+      Bucket: req.bucket,
       Key: key,
       ACL: config.acl,
       ContentType: type,
@@ -134,7 +135,7 @@ module.exports = function s3 (config) {
 
     function listPartsPage (startAt) {
       client.listParts({
-        Bucket: config.bucket,
+        Bucket: req.bucket,
         Key: key,
         UploadId: uploadId,
         PartNumberMarker: startAt
@@ -185,7 +186,7 @@ module.exports = function s3 (config) {
     }
 
     client.getSignedUrl('uploadPart', {
-      Bucket: config.bucket,
+      Bucket: req.bucket,
       Key: key,
       UploadId: uploadId,
       PartNumber: partNumber,
@@ -221,7 +222,7 @@ module.exports = function s3 (config) {
     }
 
     client.abortMultipartUpload({
-      Bucket: config.bucket,
+      Bucket: req.bucket,
       Key: key,
       UploadId: uploadId
     }, (err, data) => {
@@ -260,7 +261,7 @@ module.exports = function s3 (config) {
     }
 
     client.completeMultipartUpload({
-      Bucket: config.bucket,
+      Bucket: req.bucket,
       Key: key,
       UploadId: uploadId,
       MultipartUpload: {
@@ -277,7 +278,28 @@ module.exports = function s3 (config) {
     })
   }
 
+  function addBucketToRequest (req, _, next) {
+    // If this request is from local dev we need to change the bucket to `bloomfire-development`
+    // otherwise just take the preconfigured bucket from the server.
+    req.bucket = isFromDevelopment(req) ? 'bloomfire-development' : config.bucket
+    next()
+  };
+
+  // Middleware that validates the provided S3 prefix to make sure it's within the allowed paths.
+  function validatePrefix (req, res, next) {
+    const validUploadPaths = isFromDevelopment(req) ? /^.*\/(uploads|newsletter)/ : /^(uploads|newsletter)\/*.*/
+    const { prefix } = req.query.metadata
+
+    if (!validUploadPaths.test(prefix)) {
+      return res.status(500).json({ error: 's3: prefix contains invalid paths' })
+    }
+
+    next()
+  };
+
   return router()
+    .use(validatePrefix)
+    .use(addBucketToRequest)
     .get('/params', getUploadParameters)
     .post('/multipart', createMultipartUpload)
     .get('/multipart/:uploadId', getUploadedParts)
@@ -288,4 +310,9 @@ module.exports = function s3 (config) {
 
 function isValidPart (part) {
   return part && typeof part === 'object' && typeof part.PartNumber === 'number' && typeof part.ETag === 'string'
+}
+
+function isFromDevelopment (req) {
+  const origin = req.get('origin')
+  return /bloomfire\.me:3000/.test(origin)
 }
